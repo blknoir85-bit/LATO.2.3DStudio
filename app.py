@@ -571,6 +571,57 @@ def run_batch_ui(
 
 
 # ---------------------------------------------------------------------------
+# Quality Presets for Tab 1
+# ---------------------------------------------------------------------------
+QUALITY_PRESETS = {
+    "Fast (~30s)": dict(
+        engine="TripoSG (MIT, Fast)",
+        octree=380, s_steps=30, s_cfg=7.0,
+        run_lato=False, vnum=3000, solver="heun", vsteps=14, tsteps=18,
+        snap=True, bake=False, bake_res=1024, tighten=True, smooth=3,
+    ),
+    "Medium (~2m)": dict(
+        engine="Hunyuan3D-2.1 (Sharpest Hard-Surface)",
+        octree=380, s_steps=25, s_cfg=5.0,
+        run_lato=True, vnum=3600, solver="heun", vsteps=14, tsteps=18,
+        snap=True, bake=bool(BLENDER_EXE), bake_res=1024, tighten=False, smooth=3,
+    ),
+    "High Quality (~4m)": dict(
+        engine="Hunyuan3D-2.1 (Sharpest Hard-Surface)",
+        octree=380, s_steps=40, s_cfg=5.0,
+        run_lato=True, vnum=4200, solver="heun", vsteps=20, tsteps=26,
+        snap=True, bake=bool(BLENDER_EXE), bake_res=2048, tighten=False, smooth=3,
+    ),
+    "Ultra Quality (~7m)": dict(
+        engine="Hunyuan3D-2.1 (Sharpest Hard-Surface)",
+        octree=512, s_steps=50, s_cfg=5.5,
+        run_lato=True, vnum=5000, solver="heun", vsteps=24, tsteps=30,
+        snap=True, bake=bool(BLENDER_EXE), bake_res=4096, tighten=False, smooth=3,
+    ),
+}
+
+
+def apply_quality_preset(preset_name: str):
+    p = QUALITY_PRESETS.get(preset_name, QUALITY_PRESETS["High Quality (~4m)"])
+    return (
+        p["engine"],
+        p["octree"],
+        p["s_steps"],
+        p["s_cfg"],
+        p["run_lato"],
+        p["vnum"],
+        p["solver"],
+        p["vsteps"],
+        p["tsteps"],
+        p["snap"],
+        p["bake"],
+        p["bake_res"],
+        p["tighten"],
+        p["smooth"],
+    )
+
+
+# ---------------------------------------------------------------------------
 # Build Gradio UI
 # ---------------------------------------------------------------------------
 with gr.Blocks(title="LATO.2 3D Studio") as demo:
@@ -585,6 +636,11 @@ with gr.Blocks(title="LATO.2 3D Studio") as demo:
         with gr.Row():
             with gr.Column(scale=1):
                 t1_img = gr.Image(type="filepath", label="Input Reference Image")
+                t1_preset = gr.Radio(
+                    list(QUALITY_PRESETS.keys()),
+                    value="High Quality (~4m)",
+                    label="Quality Preset (auto-fills all settings below)",
+                )
                 t1_engine = gr.Radio(
                     [
                         "Hunyuan3D-2.1 (Sharpest Hard-Surface)",
@@ -631,6 +687,15 @@ with gr.Blocks(title="LATO.2 3D Studio") as demo:
                 t1_metrics = gr.Markdown(label="Topology Quality Gate")
                 t1_logs = gr.Textbox(label="Live Pipeline Log", lines=10, max_lines=16)
 
+        t1_preset.change(
+            apply_quality_preset,
+            inputs=[t1_preset],
+            outputs=[
+                t1_engine, t1_octree, t1_s_steps, t1_s_cfg,
+                t1_run_lato, t1_vnum, t1_solver, t1_vsteps, t1_tsteps,
+                t1_snap, t1_bake, t1_bake_res, t1_tighten, t1_smooth,
+            ],
+        )
         t1_btn.click(
             run_full_pipeline,
             inputs=[
