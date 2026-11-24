@@ -87,6 +87,29 @@ def _make_run_dir(prefix: str) -> str:
     return d
 
 
+def _convert_fbx_to_glb(src_path: str, out_glb: str, log_lines: list[str]):
+    """Convert .fbx / .dae / .usd* to .glb via headless Blender."""
+    if not BLENDER_EXE:
+        raise RuntimeError(f"Cannot import {os.path.splitext(src_path)[1]} without Blender installed.")
+    ext = os.path.splitext(src_path)[1].lower()
+    if ext == ".fbx":
+        imp = f"bpy.ops.import_scene.fbx(filepath=r'{os.path.abspath(src_path)}')"
+    elif ext in (".usd", ".usda", ".usdc", ".usdz"):
+        imp = f"bpy.ops.wm.usd_import(filepath=r'{os.path.abspath(src_path)}')"
+    elif ext == ".dae":
+        imp = f"bpy.ops.wm.collada_import(filepath=r'{os.path.abspath(src_path)}')"
+    else:
+        raise RuntimeError(f"Unsupported mesh format: {ext}")
+    py_expr = (
+        "import bpy; "
+        "bpy.ops.wm.read_factory_settings(use_empty=True); "
+        f"{imp}; "
+        f"bpy.ops.export_scene.gltf(filepath=r'{os.path.abspath(out_glb)}', export_format='GLB')"
+    )
+    cmd = [BLENDER_EXE, "-b", "--python-expr", py_expr]
+    yield from _run_subprocess(cmd, log_lines)
+
+
 def _list_existing_models() -> list[str]:
     patterns = [
         os.path.join(ROOT, "outputs", "**", "*.glb"),
@@ -317,16 +340,21 @@ def run_mesh_retopo(
     in_dir = os.path.join(run_dir, "in_mesh")
     os.makedirs(in_dir, exist_ok=True)
     base = os.path.basename(mesh_file)
-    stem = os.path.splitext(base)[0]
-    in_mesh = os.path.join(in_dir, base)
-    shutil.copy2(mesh_file, in_mesh)
-    out_lato = os.path.join(run_dir, "lato2")
-
+    stem, ext = os.path.splitext(base)
+    ext = ext.lower()
     logs = [f"Retopologizing {base} -> {run_dir}"]
     final_mesh = None
     normal_png = None
 
     try:
+        if ext in (".fbx", ".dae", ".usd", ".usda", ".usdc", ".usdz"):
+            in_mesh = os.path.join(in_dir, f"{stem}.glb")
+            for log_txt in _convert_fbx_to_glb(mesh_file, in_mesh, logs):
+                yield gr.skip(), gr.skip(), f"Converting {ext} -> .glb in Blender...", log_txt
+        else:
+            in_mesh = os.path.join(in_dir, base)
+            shutil.copy2(mesh_file, in_mesh)
+        out_lato = os.path.join(run_dir, "lato2")
         cmd = [
             PYTHON, "scripts/e2e_inference.py",
             "--mesh_dir", in_dir,
@@ -483,21 +511,27 @@ def run_standalone_tighten(mesh_file, mirror_axis, smooth_iters, planar_angle, s
         yield None, "Provide a mesh and ensure Blender is installed.", ""
         return
     run_dir = _make_run_dir("tighten")
-    stem = os.path.splitext(os.path.basename(mesh_file))[0]
+    stem, ext = os.path.splitext(os.path.basename(mesh_file))
+    ext = ext.lower()
     out_glb = os.path.join(run_dir, f"{stem}_tight.glb")
     logs = []
-    cmd = [
-        BLENDER_EXE, "-b", "--python", "scripts/hardsurface_tighten_blender.py", "--",
-        "--in_mesh", mesh_file,
-        "--out_mesh", out_glb,
-        "--mirror_axis", str(mirror_axis),
-        "--smooth_iters", str(int(smooth_iters)),
-        "--planar_angle", str(float(planar_angle)),
-        "--sharp_angle", str(float(sharp_angle)),
-    ]
     try:
+        src_for_tighten = mesh_file
+        if ext in (".fbx", ".dae", ".usd", ".usda", ".usdc", ".usdz"):
+            src_for_tighten = os.path.join(run_dir, f"{stem}_converted.glb")
+            for log_txt in _convert_fbx_to_glb(mesh_file, src_for_tighten, logs):
+                yield gr.skip(), f"Converting {ext} -> .glb in Blender...", log_txt
+        cmd = [
+            BLENDER_EXE, "-b", "--python", "scripts/hardsurface_tighten_blender.py", "--",
+            "--in_mesh", src_for_tighten,
+            "--out_mesh", out_glb,
+            "--mirror_axis", str(mirror_axis),
+            "--smooth_iters", str(int(smooth_iters)),
+            "--planar_angle", str(float(planar_angle)),
+            "--sharp_angle", str(float(sharp_angle)),
+        ]
         for log_txt in _run_subprocess(cmd, logs):
-            yield None, "Running Blender tightening...", log_txt
+            yield gr.skip(), "Running Blender tightening...", log_txt
         yield out_glb, f"Saved: `{os.path.relpath(out_glb, ROOT)}`", "\n".join(logs[-80:])
     except Exception as e:
         yield None, f"**Error:** `{e}`", "\n".join(logs[-80:])
@@ -711,7 +745,7 @@ with gr.Blocks(title="LATO.2 3D Studio") as demo:
     with gr.Tab("2. Mesh → LATO.2 Retopology"):
         with gr.Row():
             with gr.Column(scale=1):
-                t2_mesh = gr.File(label="Input Dense Mesh (.glb / .obj / .ply)")
+                t2_mesh = gr.File(label="Input Dense Mesh (.glb / .obj / .ply / .fbx / .usd)")
                 t2_vnum = gr.Slider(1000, 7000, value=4200, step=200, label="Target Vertex Count")
                 t2_solver = gr.Radio(["heun", "euler"], value="heun", label="ODE Solver")
                 with gr.Row():
@@ -794,7 +828,7 @@ with gr.Blocks(title="LATO.2 3D Studio") as demo:
                 t4_dd = gr.Dropdown(choices=_list_existing_models(), label="Generated Meshes in outputs/")
                 t4_refresh = gr.Button("Refresh List")
                 gr.Markdown("### Standalone Blender Hard-Surface Tighten")
-                t4_in_mesh = gr.File(label="Upload Mesh (.glb / .obj)")
+                t4_in_mesh = gr.File(label="Upload Mesh (.glb / .obj / .fbx / .usd)")
                 t4_mirror = gr.Radio(["NONE", "X", "Y"], value="NONE", label="Mirror Axis")
                 with gr.Row():
                     t4_smooth = gr.Slider(0, 12, value=3, step=1, label="Volume-Preserving Smooth Iters")
