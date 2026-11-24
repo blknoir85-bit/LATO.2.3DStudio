@@ -100,6 +100,37 @@ Open **http://127.0.0.1:7860** (automatically falls back to the next open port i
 2. **Mesh → LATO.2 Retopology**: Upload any `.glb`/`.obj`/`.ply` mesh to retopologize with LATO.2, surface-snap, and bake normals.
 3. **Hero-Part Cropper & Generator**: Interactive percentage crop box + `518×518` preview → generate high-res hero parts with Hunyuan3D-2.1 or TripoSG → optional Blender hard-surface tightening.
 4. **Hard-Surface Tighten & Output Browser**: Browse and inspect all generated `.glb`/`.obj` outputs in `outputs/` with live topology metrics, or run standalone Blender hard-surface tightening.
+5. **Batch Queue (Multi-Image)**: Drop multiple images or point to a folder to run the entire pipeline unattended with automatic resume and CSV/JSON summary export.
+
+---
+
+## 4. Agent-Friendly Batch Pipeline (`scripts/batch_pipeline.py`)
+
+For AI agents or unattended overnight runs, [`scripts/batch_pipeline.py`](scripts/batch_pipeline.py) processes either a folder of images (`--image_dir`) or a structured JSON job manifest (`--manifest`):
+
+```powershell
+# Process an entire folder (resumable, VRAM-isolated per item)
+$env:TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL="1"
+.venv\Scripts\python.exe scripts/batch_pipeline.py `
+  --image_dir assets/batch_in `
+  --out_dir outputs/batch_out `
+  --scaffold hunyuan3d --solver heun --vert_num 4200 --snap --bake
+
+# Or feed a JSON manifest with per-asset overrides
+.venv\Scripts\python.exe scripts/batch_pipeline.py --manifest jobs.json --out_dir outputs/batch_out
+```
+
+Example `jobs.json` manifest:
+```json
+[
+  {"id": "mecha_01", "image": "assets/mecha.jpg", "scaffold": "hunyuan3d", "vert_num": 4200, "bake": true},
+  {"id": "prop_02",  "image": "assets/crate.png", "scaffold": "triposg",   "vert_num": 2500, "lato2": false, "tighten": true}
+]
+```
+
+### Agent-Ready Outputs
+- `<out_dir>/<id>/result.json`: Per-asset status (`ok`/`failed`), elapsed time, exact paths (`dense_scaffold`, `lato2_mesh`, `snapped_mesh`, `baked_glb`, `normal_map`, `final_mesh`), and full Topology Quality Gate metrics (`nmer_pct`, `ber_pct`, `num_open_loops`, `num_components`, `faces_per_vert`).
+- `<out_dir>/batch_summary.json` & `<out_dir>/batch_summary.csv`: Updated live after every item; `--resume` (default) skips already-completed items cleanly.
 
 > **VRAM Management**: Every pipeline stage runs in an isolated subprocess so VRAM is 100% released between Hunyuan3D-2.1/TripoSG, LATO.2, and Blender — running comfortably on a 16 GB GPU.
 

@@ -512,6 +512,62 @@ def inspect_existing_model(rel_path):
 
 
 # ---------------------------------------------------------------------------
+# Tab 5: Batch Queue (Multi-Image / Agent Mode)
+# ---------------------------------------------------------------------------
+def run_batch_ui(
+    files,
+    folder_path,
+    out_dir_rel,
+    scaffold,
+    octree_res,
+    run_lato2,
+    vert_num,
+    solver,
+    do_snap,
+    do_bake,
+    bake_res,
+    resume,
+):
+    in_dir = None
+    if files:
+        batch_dir = _make_run_dir("batch_uploads")
+        in_dir = os.path.join(batch_dir, "images")
+        os.makedirs(in_dir, exist_ok=True)
+        for f in files:
+            src = f if isinstance(f, str) else getattr(f, "name", str(f))
+            shutil.copy2(src, os.path.join(in_dir, os.path.basename(src)))
+    elif folder_path and os.path.isdir(folder_path):
+        in_dir = folder_path
+    else:
+        yield "Upload one or more images or specify a valid folder path.", "", None
+        return
+
+    out_dir = out_dir_rel.strip() if out_dir_rel and out_dir_rel.strip() else os.path.join("outputs", "batch_runs", datetime.now().strftime("%Y%m%d_%H%M%S"))
+    cmd = [
+        PYTHON, "scripts/batch_pipeline.py",
+        "--image_dir", in_dir,
+        "--out_dir", out_dir,
+        "--scaffold", scaffold,
+        "--octree_resolution", str(int(octree_res)),
+        "--vert_num", str(int(vert_num)),
+        "--solver", solver,
+        "--bake_res", str(int(bake_res)),
+        "--lato2" if run_lato2 else "--no-lato2",
+        "--snap" if do_snap else "--no-snap",
+        "--bake" if do_bake else "--no-bake",
+        "--resume" if resume else "--no-resume",
+    ]
+    logs = []
+    summary_csv = os.path.join(ROOT, out_dir, "batch_summary.csv") if not os.path.isabs(out_dir) else os.path.join(out_dir, "batch_summary.csv")
+    try:
+        for log_txt in _run_subprocess(cmd, logs):
+            yield f"Running batch -> `{out_dir}`...", log_txt, gr.skip()
+        yield f"### Batch Finished!\n- Output folder: `{out_dir}`\n- Summary JSON: `{os.path.join(out_dir, 'batch_summary.json')}`", "\n".join(logs[-100:]), summary_csv if os.path.isfile(summary_csv) else None
+    except Exception as e:
+        yield f"**Error:** `{e}`", "\n".join(logs[-100:]), summary_csv if os.path.isfile(summary_csv) else None
+
+
+# ---------------------------------------------------------------------------
 # Build Gradio UI
 # ---------------------------------------------------------------------------
 with gr.Blocks(title="LATO.2 3D Studio") as demo:
@@ -686,6 +742,39 @@ with gr.Blocks(title="LATO.2 3D Studio") as demo:
             run_standalone_tighten,
             inputs=[t4_in_mesh, t4_mirror, t4_planar, t4_sharp],
             outputs=[t4_model, t4_info, t4_logs],
+        )
+
+    # ===== TAB 5: BATCH QUEUE (MULTI-IMAGE / AGENT MODE) =====
+    with gr.Tab("5. Batch Queue (Multi-Image)"):
+        with gr.Row():
+            with gr.Column(scale=1):
+                t5_files = gr.File(file_count="multiple", file_types=["image"], label="Upload Multiple Images")
+                t5_folder = gr.Textbox(placeholder="Or paste a local image folder path (e.g. assets/example_image)", label="Local Image Folder (optional)")
+                t5_out = gr.Textbox(value="outputs/batch_run", label="Output Directory")
+                t5_scaffold = gr.Radio(["hunyuan3d", "triposg", "trellis"], value="hunyuan3d", label="Front-End Scaffold")
+                t5_octree = gr.Slider(256, 512, value=380, step=16, label="Hunyuan3D Octree Resolution")
+                t5_lato = gr.Checkbox(value=True, label="Run LATO.2 Retopology")
+                with gr.Row():
+                    t5_vnum = gr.Slider(1000, 7000, value=4200, step=200, label="Target Vertices")
+                    t5_solver = gr.Radio(["heun", "euler"], value="heun", label="ODE Solver")
+                with gr.Row():
+                    t5_snap = gr.Checkbox(value=True, label="Surface-Snap")
+                    t5_bake = gr.Checkbox(value=bool(BLENDER_EXE), label="Blender Normal Bake")
+                    t5_resume = gr.Checkbox(value=True, label="Resume (Skip Done)")
+                t5_bake_res = gr.Radio([1024, 2048, 4096], value=2048, label="Normal Map Resolution")
+                t5_btn = gr.Button("Run Batch Pipeline", variant="primary")
+            with gr.Column(scale=2):
+                t5_status = gr.Markdown("Drop multiple images or point to a folder to process them unattended.")
+                t5_csv = gr.File(label="Batch Summary CSV")
+                t5_logs = gr.Textbox(label="Live Batch Log", lines=18, max_lines=24)
+
+        t5_btn.click(
+            run_batch_ui,
+            inputs=[
+                t5_files, t5_folder, t5_out, t5_scaffold, t5_octree,
+                t5_lato, t5_vnum, t5_solver, t5_snap, t5_bake, t5_bake_res, t5_resume,
+            ],
+            outputs=[t5_status, t5_logs, t5_csv],
         )
 
 
