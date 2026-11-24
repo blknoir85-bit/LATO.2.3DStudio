@@ -444,11 +444,17 @@ def main():
                     f"{name}: only {num_pred} generated vertices; skipping topology."
                 )
             elif num_pred > max_vertices:
-                n_no_topo += 1
+                target_n = max(3, max_vertices - 200)
+                idx = torch.linspace(0, num_pred - 1, target_n).round().long()
+                vert_int = vert_int[idx]
+                vert_off = vert_off[idx]
                 logging.warning(
                     f"{name}: {num_pred} generated vertices exceed T-Flow "
-                    f"max_vertices={max_vertices}; skipping topology."
+                    f"max_vertices={max_vertices}; auto-subsampled to {target_n} vertices."
                 )
+                keep_idx.append(b)
+                verts_list.append(vert_int)
+                offsets_list.append(vert_off)
             else:
                 keep_idx.append(b)
                 verts_list.append(vert_int)

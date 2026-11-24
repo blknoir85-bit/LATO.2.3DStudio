@@ -159,13 +159,13 @@ def run_full_pipeline(
                 "--seed", str(int(seed)),
             ]
             for log_txt in _run_subprocess(cmd, logs):
-                yield None, None, None, "Stage 1/1: Running TRELLIS -> LATO.2...", log_txt
+                yield gr.skip(), gr.skip(), gr.skip(), "Stage 1/1: Running TRELLIS -> LATO.2...", log_txt
             pred_obj = os.path.join(out_lato, f"{stem}_pred.obj")
             if os.path.isfile(pred_obj):
                 final_display = pred_obj
                 m = trimesh.load(pred_obj, process=False)
                 metrics_md = f"```\n{format_topology_report(stem, compute_topology_metrics(m))}\n```"
-            yield final_display, None, None, metrics_md, "\n".join(logs[-80:])
+            yield final_display, gr.skip(), gr.skip(), metrics_md, "\n".join(logs[-80:])
             return
 
         scaffold_dir = os.path.join(run_dir, "scaffold")
@@ -195,11 +195,13 @@ def run_full_pipeline(
             ]
 
         for log_txt in _run_subprocess(cmd, logs):
-            yield None, None, None, f"Stage 1: Generating dense scaffold with {scaffold_engine}...", log_txt
+            yield gr.skip(), gr.skip(), gr.skip(), f"Stage 1: Generating dense scaffold with {scaffold_engine}...", log_txt
 
         final_display = dense_mesh_path
         dm = trimesh.load(dense_mesh_path, force="mesh", process=False)
         metrics_md = f"**Dense Scaffold**: V={len(dm.vertices):,}, F={len(dm.faces):,}, watertight={dm.is_watertight}"
+        # Push the dense scaffold once so the 3D viewer renders it cleanly while Stage 2 runs
+        yield dense_mesh_path, dense_mesh_path, gr.skip(), metrics_md, "\n".join(logs[-80:])
 
         # Optional Hard-Surface Tighten on dense scaffold when skipping LATO.2
         if do_tighten and not run_lato2 and BLENDER_EXE:
@@ -213,7 +215,7 @@ def run_full_pipeline(
                 "--sharp_angle", str(float(sharp_angle)),
             ]
             for log_txt in _run_subprocess(cmd, logs):
-                yield dense_mesh_path, dense_mesh_path, None, "Applying Blender hard-surface tightening...", log_txt
+                yield gr.skip(), gr.skip(), gr.skip(), "Applying Blender hard-surface tightening...", log_txt
             final_display = tight_glb
 
         if not run_lato2:
@@ -236,11 +238,11 @@ def run_full_pipeline(
             "--num_workers", "0",
         ]
         for log_txt in _run_subprocess(cmd, logs):
-            yield dense_mesh_path, dense_mesh_path, None, f"Stage 2: Running LATO.2 ({solver})...", log_txt
+            yield gr.skip(), gr.skip(), gr.skip(), f"Stage 2: Running LATO.2 ({solver})...", log_txt
 
         pred_obj = os.path.join(out_lato, f"{stem}_scaffold_pred.obj")
         if not os.path.isfile(pred_obj):
-            raise RuntimeError("LATO.2 skipped topology (likely exceeded 10,000 generated vertices). Try lowering Target Vertices (e.g. 4000).")
+            raise RuntimeError("LATO.2 skipped topology. Try lowering Target Vertices (e.g. 4200).")
 
         low_mesh_path = pred_obj
         low_mesh = trimesh.load(pred_obj, process=False)
@@ -249,7 +251,7 @@ def run_full_pipeline(
         # ---- Stage 3: Surface-Snap ----
         if do_snap:
             logs.append("Stage 3: Surface-snapping LATO.2 vertices onto dense scaffold...")
-            yield low_mesh_path, dense_mesh_path, None, "Stage 3: Surface-snapping...", "\n".join(logs[-80:])
+            yield gr.skip(), gr.skip(), gr.skip(), "Stage 3: Surface-snapping...", "\n".join(logs[-80:])
             snapped, snap_stats = snap_mesh_to_reference(
                 low_mesh, dm, normalize_ref=True, max_snap_dist=0.04, blend=1.0
             )
@@ -273,7 +275,7 @@ def run_full_pipeline(
                 "--res", str(int(bake_res)),
             ]
             for log_txt in _run_subprocess(cmd, logs):
-                yield low_mesh_path, dense_mesh_path, None, f"Stage 4: Baking {int(bake_res)}x{int(bake_res)} normal map in Blender...", log_txt
+                yield gr.skip(), gr.skip(), gr.skip(), f"Stage 4: Baking {int(bake_res)}x{int(bake_res)} normal map in Blender...", log_txt
             final_display = baked_glb
 
         metrics_md = (
@@ -286,7 +288,7 @@ def run_full_pipeline(
 
     except Exception as e:
         logs.append(f"ERROR: {e}")
-        yield final_display, dense_mesh_path, normal_map_path, f"**Error:** `{e}`", "\n".join(logs[-80:])
+        yield gr.skip(), gr.skip(), gr.skip(), f"**Error:** `{e}`", "\n".join(logs[-80:])
 
 
 # ---------------------------------------------------------------------------
@@ -337,7 +339,7 @@ def run_mesh_retopo(
             "--num_workers", "0",
         ]
         for log_txt in _run_subprocess(cmd, logs):
-            yield None, None, f"Running LATO.2 ({solver})...", log_txt
+            yield gr.skip(), gr.skip(), f"Running LATO.2 ({solver})...", log_txt
 
         pred_obj = os.path.join(out_lato, f"{stem}_pred.obj")
         if not os.path.isfile(pred_obj):
@@ -367,7 +369,7 @@ def run_mesh_retopo(
                 "--res", str(int(bake_res)),
             ]
             for log_txt in _run_subprocess(cmd, logs):
-                yield low_path, None, "Baking normal map in Blender...", log_txt
+                yield gr.skip(), gr.skip(), "Baking normal map in Blender...", log_txt
             final_mesh = baked_glb
 
         yield final_mesh, normal_png, f"```\n{topo_report}\n```", "\n".join(logs[-80:])
@@ -446,8 +448,9 @@ def run_hero_part(
                 "--target_faces", "120000",
             ]
 
+        yield crop_img, gr.skip(), f"Generating hero part with {engine}...", "\n".join(logs[-80:])
         for log_txt in _run_subprocess(cmd, logs):
-            yield crop_img, None, f"Generating hero part with {engine}...", log_txt
+            yield gr.skip(), gr.skip(), f"Generating hero part with {engine}...", log_txt
 
         final_glb = raw_glb
         if do_tighten and BLENDER_EXE:
@@ -461,7 +464,7 @@ def run_hero_part(
                 "--sharp_angle", str(float(sharp_angle)),
             ]
             for log_txt in _run_subprocess(cmd, logs):
-                yield crop_img, raw_glb, "Tightening hard surfaces in Blender...", log_txt
+                yield gr.skip(), gr.skip(), "Tightening hard surfaces in Blender...", log_txt
             final_glb = tight_glb
 
         yield crop_img, final_glb, f"Saved: `{os.path.relpath(final_glb, ROOT)}`", "\n".join(logs[-80:])
