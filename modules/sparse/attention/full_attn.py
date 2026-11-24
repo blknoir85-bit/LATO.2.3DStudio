@@ -30,6 +30,8 @@ if ATTN == 'xformers':
     import xformers.ops as xops
 elif ATTN == 'flash_attn':
     import flash_attn
+elif ATTN == 'sdpa':
+    import torch.nn.functional as F
 else:
     raise ValueError(f"Unknown attention module: {ATTN}")
 
@@ -229,6 +231,24 @@ def sparse_scaled_dot_product_attention(*args, **kwargs):
             out = flash_attn.flash_attn_varlen_kvpacked_func(q, kv, cu_seqlens_q, cu_seqlens_kv, max(q_seqlen), max(kv_seqlen))
         elif num_all_args == 3:
             out = flash_attn.flash_attn_varlen_func(q, k, v, cu_seqlens_q, cu_seqlens_kv, max(q_seqlen), max(kv_seqlen))
+    elif ATTN == 'sdpa':
+        if num_all_args == 1:
+            q, k, v = qkv.unbind(dim=1)
+            kv_seqlen = q_seqlen
+        elif num_all_args == 2:
+            k, v = kv.unbind(dim=1)
+        out_chunks = []
+        q_off = 0
+        kv_off = 0
+        for ql, kvl in zip(q_seqlen, kv_seqlen):
+            qi = q[q_off:q_off + ql].transpose(0, 1).unsqueeze(0)
+            ki = k[kv_off:kv_off + kvl].transpose(0, 1).unsqueeze(0)
+            vi = v[kv_off:kv_off + kvl].transpose(0, 1).unsqueeze(0)
+            oi = F.scaled_dot_product_attention(qi, ki, vi).squeeze(0).transpose(0, 1)
+            out_chunks.append(oi)
+            q_off += ql
+            kv_off += kvl
+        out = torch.cat(out_chunks, dim=0)
     else:
         raise ValueError(f"Unknown attention module: {ATTN}")
     

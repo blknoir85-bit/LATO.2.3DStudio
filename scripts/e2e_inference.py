@@ -89,7 +89,8 @@ def parse_args():
     p.add_argument("--inference_threshold", type=float, default=0.5)
     p.add_argument("--seed", type=int, default=42)
     # vertex flow sampling
-    p.add_argument("--vflow_steps", type=int, default=24, help="V-Flow Euler steps")
+    p.add_argument("--vflow_steps", type=int, default=24, help="V-Flow ODE steps")
+    p.add_argument("--solver", choices=["euler", "heun"], default="euler", help="ODE solver for V-Flow and T-Flow")
     p.add_argument("--cfg_strength", type=float, default=3.0)
     p.add_argument("--rescale_t", type=float, default=1.0)
     # vertex-count density conditioning
@@ -271,6 +272,7 @@ def main():
                 steps=args.vflow_steps,
                 cfg_strength=args.cfg_strength,
                 rescale_t=args.rescale_t,
+                solver=args.solver,
                 density=density,
             )
             pred_coords, pred_offsets = decode_vertices(
@@ -329,6 +331,7 @@ def main():
                 mask=mask,
                 cond=cond_vox,
                 steps=args.tflow_steps,
+                solver=args.solver,
             )
             z = z_flow.float() / latent_scale
 

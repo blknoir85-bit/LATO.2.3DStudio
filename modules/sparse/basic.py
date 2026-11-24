@@ -28,6 +28,37 @@ from . import BACKEND, DEBUG
 SparseTensorData = None # Lazy import
 
 
+class _TorchSparseData:
+    """Lightweight pure-PyTorch sparse tensor container matching spconv's interface."""
+    def __init__(self, features: torch.Tensor, indices: torch.Tensor, spatial_shape, batch_size: int):
+        self._features = features
+        self.indices = indices
+        self.spatial_shape = list(spatial_shape)
+        self.batch_size = int(batch_size)
+
+    @property
+    def features(self) -> torch.Tensor:
+        return self._features
+
+    @features.setter
+    def features(self, value: torch.Tensor):
+        self._features = value
+
+    def dense(self) -> torch.Tensor:
+        feats = self._features
+        spatial = [int(s) for s in self.spatial_shape]
+        out = feats.new_zeros((self.batch_size, *feats.shape[1:], *spatial))
+        idx = self.indices.long()
+        if idx.numel() > 0:
+            if feats.ndim == 2:
+                out[idx[:, 0], :, idx[:, 1], idx[:, 2], idx[:, 3]] = feats
+            else:
+                flat = feats.reshape(feats.shape[0], -1)
+                out_flat = out.reshape(self.batch_size, -1, *spatial)
+                out_flat[idx[:, 0], :, idx[:, 1], idx[:, 2], idx[:, 3]] = flat
+        return out
+
+
 __all__ = [
     'SparseTensor',
     'sparse_batch_broadcast',
@@ -67,6 +98,8 @@ class SparseTensor:
                 SparseTensorData = importlib.import_module('torchsparse').SparseTensor
             elif BACKEND == 'spconv':
                 SparseTensorData = importlib.import_module('spconv.pytorch').SparseConvTensor
+            elif BACKEND == 'torch':
+                SparseTensorData = _TorchSparseData
                 
         method_id = 0
         if len(args) != 0:
@@ -95,8 +128,8 @@ class SparseTensor:
                 layout = self.__cal_layout(coords, shape[0])
             if BACKEND == 'torchsparse':
                 self.data = SparseTensorData(feats, coords, **kwargs)
-            elif BACKEND == 'spconv':
-                spatial_shape = list(coords.max(0)[0] + 1)[1:]
+            elif BACKEND in ('spconv', 'torch'):
+                spatial_shape = [int(v) for v in (coords.max(0)[0] + 1).tolist()[1:]] if coords.numel() > 0 else [1, 1, 1]
                 self.data = SparseTensorData(feats.reshape(feats.shape[0], -1), coords, spatial_shape, shape[0], **kwargs)
                 self.data._features = feats
         elif method_id == 1:
@@ -164,28 +197,28 @@ class SparseTensor:
     def feats(self) -> torch.Tensor:
         if BACKEND == 'torchsparse':
             return self.data.F
-        elif BACKEND == 'spconv':
+        elif BACKEND in ('spconv', 'torch'):
             return self.data.features
     
     @feats.setter
     def feats(self, value: torch.Tensor):
         if BACKEND == 'torchsparse':
             self.data.F = value
-        elif BACKEND == 'spconv':
+        elif BACKEND in ('spconv', 'torch'):
             self.data.features = value
 
     @property
     def coords(self) -> torch.Tensor:
         if BACKEND == 'torchsparse':
             return self.data.C
-        elif BACKEND == 'spconv':
+        elif BACKEND in ('spconv', 'torch'):
             return self.data.indices
         
     @coords.setter
     def coords(self, value: torch.Tensor):
         if BACKEND == 'torchsparse':
             self.data.C = value
-        elif BACKEND == 'spconv':
+        elif BACKEND in ('spconv', 'torch'):
             self.data.indices = value
 
     @property
@@ -253,7 +286,7 @@ class SparseTensor:
     def dense(self) -> torch.Tensor:
         if BACKEND == 'torchsparse':
             return self.data.dense()
-        elif BACKEND == 'spconv':
+        elif BACKEND in ('spconv', 'torch'):
             return self.data.dense()
 
     def reshape(self, *shape) -> 'SparseTensor':
@@ -293,6 +326,14 @@ class SparseTensor:
             new_data.int8_scale = self.data.int8_scale
             if coords is not None:
                 new_data.indices = coords
+        elif BACKEND == 'torch':
+            new_coords = self.data.indices if coords is None else coords
+            new_data = _TorchSparseData(
+                feats,
+                new_coords,
+                self.data.spatial_shape,
+                self.data.batch_size,
+            )
         new_tensor = SparseTensor(new_data, shape=torch.Size(new_shape), layout=self.layout, scale=self._scale, spatial_cache=self._spatial_cache)
         return new_tensor
 

@@ -3,7 +3,10 @@ import torch
 import trimesh
 from trimesh import grouping
 
-from o_voxel.convert import mesh_to_flexible_dual_grid
+try:
+    from o_voxel.convert import mesh_to_flexible_dual_grid
+except ImportError:
+    mesh_to_flexible_dual_grid = None
 
 MESH_EXTENSIONS = {".obj", ".glb", ".gltf", ".ply", ".stl", ".off"}
 
@@ -95,13 +98,29 @@ def dedup_quantized_mesh(
 def extract_active_voxels(
     vertices: np.ndarray, faces: np.ndarray, resolution: int
 ) -> torch.Tensor:
-    coords, *_ = mesh_to_flexible_dual_grid(
-        vertices=torch.as_tensor(vertices * 0.99999, dtype=torch.float32).contiguous(),
-        faces=torch.as_tensor(faces, dtype=torch.int32).contiguous(),
-        grid_size=resolution,
-        aabb=torch.tensor([[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]], dtype=torch.float32),
-    )
-    coords = coords.cpu().long()
+    if mesh_to_flexible_dual_grid is not None:
+        coords, *_ = mesh_to_flexible_dual_grid(
+            vertices=torch.as_tensor(vertices * 0.99999, dtype=torch.float32).contiguous(),
+            faces=torch.as_tensor(faces, dtype=torch.int32).contiguous(),
+            grid_size=resolution,
+            aabb=torch.tensor([[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]], dtype=torch.float32),
+        )
+        coords = coords.cpu().long()
+    else:
+        import open3d as o3d
+        o3d_mesh = o3d.geometry.TriangleMesh()
+        o3d_mesh.vertices = o3d.utility.Vector3dVector(np.asarray(vertices, dtype=np.float64) * 0.99999)
+        o3d_mesh.triangles = o3d.utility.Vector3iVector(np.asarray(faces, dtype=np.int32))
+        vg = o3d.geometry.VoxelGrid.create_from_triangle_mesh_within_bounds(
+            o3d_mesh,
+            voxel_size=1.0 / resolution,
+            min_bound=np.array([-0.5, -0.5, -0.5], dtype=np.float64),
+            max_bound=np.array([0.5, 0.5, 0.5], dtype=np.float64),
+        )
+        grid_indices = np.array([v.grid_index for v in vg.get_voxels()], dtype=np.int64)
+        if len(grid_indices) == 0:
+            return torch.zeros((0, 3), dtype=torch.int32)
+        coords = torch.from_numpy(np.clip(grid_indices, 0, resolution - 1)).long()
     coords_1d = (
         coords[:, 0] * resolution * resolution
         + coords[:, 1] * resolution

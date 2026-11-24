@@ -158,10 +158,56 @@ def parse_args():
         default=os.path.join(ROOT, "ckpt", "dinov2"),
         help="torch.hub cache for DINO-v2; reused when present, downloaded otherwise",
     )
+    p.add_argument(
+        "--prune_voxel_islands",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="prune disconnected floating voxel islands from the 64^3 scaffold before V-Flow",
+    )
+    p.add_argument(
+        "--min_voxel_component_ratio",
+        type=float,
+        default=0.05,
+        help="keep voxel components at least this fraction of the largest component (when --prune_voxel_islands)",
+    )
     args = p.parse_args()
     if args.num_samples is not None and args.num_samples <= 0:
         args.num_samples = None  # <= 0 means "all", not python slice semantics
     return args
+
+
+def prune_voxel_islands(
+    occupancy: torch.Tensor, min_component_ratio: float = 0.05
+) -> tuple[torch.Tensor, list[tuple[int, int, int]]]:
+    """Prune small disconnected 26-connected voxel islands from (B, 1, R, R, R) occupancy."""
+    from scipy.ndimage import label
+
+    structure = np.ones((3, 3, 3), dtype=np.int32)
+    occ_np = occupancy.detach().cpu().numpy()
+    cleaned = np.zeros_like(occ_np, dtype=bool)
+    stats = []
+    for b in range(occ_np.shape[0]):
+        vol = occ_np[b, 0].astype(bool)
+        total_before = int(vol.sum())
+        if total_before == 0:
+            stats.append((0, 0, 0))
+            continue
+        labeled, num_comp = label(vol, structure=structure)
+        if num_comp <= 1:
+            cleaned[b, 0] = vol
+            stats.append((num_comp, 0, 0))
+            continue
+        counts = np.bincount(labeled.ravel())
+        counts[0] = 0  # background
+        largest = int(counts.max())
+        thresh = max(1, int(largest * min_component_ratio))
+        keep_ids = np.where(counts >= thresh)[0]
+        mask = np.isin(labeled, keep_ids)
+        cleaned[b, 0] = mask
+        removed_comp = int(num_comp - len(keep_ids))
+        removed_vox = int(total_before - mask.sum())
+        stats.append((num_comp, removed_comp, removed_vox))
+    return torch.from_numpy(cleaned).to(device=occupancy.device), stats
 
 
 def ss_to_lato_voxels(occupancy: torch.Tensor) -> torch.Tensor:
@@ -312,6 +358,16 @@ def main():
                 f"SS decoder resolution={occupancy.shape[-1]} != V-VAE "
                 f"min_resolution={min_res}; V-Flow expects {min_res}^3 active voxels."
             )
+        if args.prune_voxel_islands:
+            occupancy, prune_stats = prune_voxel_islands(
+                occupancy, min_component_ratio=args.min_voxel_component_ratio
+            )
+            for name, (n_comp, n_rem_comp, n_rem_vox) in zip(names, prune_stats):
+                if n_rem_comp > 0:
+                    logging.info(
+                        f"{name}: pruned {n_rem_comp}/{n_comp} floating voxel islands "
+                        f"({n_rem_vox} voxels removed)"
+                    )
         coords = ss_to_lato_voxels(occupancy).cpu()
         voxels = [coords[coords[:, 0] == b, 1:] for b in range(len(names))]
         keep = [b for b, v in enumerate(voxels) if v.shape[0] > 0]

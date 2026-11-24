@@ -29,6 +29,7 @@ ATTN = 'flash_attn'
 
 def __from_env():
     import os
+    os.environ.setdefault("TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL", "1")
     
     global BACKEND
     global DEBUG
@@ -40,12 +41,20 @@ def __from_env():
     if env_sparse_attn is None:
         env_sparse_attn = os.environ.get('ATTN_BACKEND')
 
-    if env_sparse_backend is not None and env_sparse_backend in ['spconv', 'torchsparse']:
+    if env_sparse_backend is not None and env_sparse_backend in ['spconv', 'torchsparse', 'torch']:
         BACKEND = env_sparse_backend
+    else:
+        import importlib.util
+        if BACKEND == 'spconv' and importlib.util.find_spec('spconv') is None:
+            BACKEND = 'torch'
     if env_sparse_debug is not None:
         DEBUG = env_sparse_debug == '1'
-    if env_sparse_attn is not None and env_sparse_attn in ['xformers', 'flash_attn']:
+    if env_sparse_attn is not None and env_sparse_attn in ['xformers', 'flash_attn', 'sdpa']:
         ATTN = env_sparse_attn
+    else:
+        import importlib.util
+        if ATTN == 'flash_attn' and importlib.util.find_spec('flash_attn') is None:
+            ATTN = 'xformers' if importlib.util.find_spec('xformers') is not None else 'sdpa'
         
     print(f"[SPARSE] Backend: {BACKEND}, Attention: {ATTN}")
         

@@ -1,5 +1,10 @@
 **/__pycache__
 .vscode/
+.venv/
 ckpt/
 outputs/
 tmp/
+third_party/
+assets/megatron.jpg
+assets/megatron/
+scripts/build_kitbash_blend.py

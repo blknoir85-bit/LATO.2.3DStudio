@@ -1,3 +1,6 @@
+> [!TIP]
+> **Windows + AMD ROCm & LATO.2 3D Studio Edition**: See **[STUDIO_README.md](./STUDIO_README.md)** for native Windows ROCm 7.2.1 setup (no CUDA/`nvcc`), the 2nd-order Heun ODE sampler, multi-engine Hunyuan3D-2.1 / TripoSG scaffolds, Blender 5.2 normal baking & hard-surface tightening, and the 4-tab Gradio Web UI (`app.py`).
+
 <div align="center">
 
 <h1>LATO.2: Factorized 3D Mesh Generation with Vertex and Topology Flow</h1>

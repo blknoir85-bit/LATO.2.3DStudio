@@ -28,7 +28,22 @@ import torch
 import torch.nn as nn
 import copy
 from torch import Tensor
-from torch_scatter import scatter_mean
+try:
+    from torch_scatter import scatter_mean
+except ImportError:
+    def scatter_mean(src: Tensor, index: Tensor, dim: int = -1, out: Tensor = None, dim_size: int = None) -> Tensor:
+        dim = dim % src.ndim
+        idx = index.expand_as(src) if index.shape != src.shape else index
+        if out is None:
+            size = list(src.shape)
+            size[dim] = int(idx.max().item()) + 1 if dim_size is None else dim_size
+            out = src.new_zeros(size)
+        else:
+            out.zero_()
+        out.scatter_add_(dim, idx, src)
+        count = src.new_zeros(out.shape)
+        count.scatter_add_(dim, idx, torch.ones_like(src))
+        return out.div_(count.clamp_(min=1))
 from torch.utils.checkpoint import checkpoint
 
 
