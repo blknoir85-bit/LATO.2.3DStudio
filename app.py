@@ -333,7 +333,7 @@ def run_mesh_retopo(
     seed,
 ):
     if not mesh_file:
-        yield None, None, "Please upload a 3D mesh (.glb, .obj, .ply).", ""
+        yield None, None, None, "Please upload a 3D mesh (.glb, .obj, .ply, .fbx, .usd).", ""
         return
 
     run_dir = _make_run_dir("retopo")
@@ -350,7 +350,7 @@ def run_mesh_retopo(
         if ext in (".fbx", ".dae", ".usd", ".usda", ".usdc", ".usdz"):
             in_mesh = os.path.join(in_dir, f"{stem}.glb")
             for log_txt in _convert_fbx_to_glb(mesh_file, in_mesh, logs):
-                yield gr.skip(), gr.skip(), f"Converting {ext} -> .glb in Blender...", log_txt
+                yield gr.skip(), gr.skip(), gr.skip(), f"Converting {ext} -> .glb in Blender...", log_txt
         else:
             in_mesh = os.path.join(in_dir, base)
             shutil.copy2(mesh_file, in_mesh)
@@ -369,7 +369,7 @@ def run_mesh_retopo(
             "--num_workers", "0",
         ]
         for log_txt in _run_subprocess(cmd, logs):
-            yield gr.skip(), gr.skip(), f"Running LATO.2 ({solver})...", log_txt
+            yield gr.skip(), gr.skip(), gr.skip(), f"Running LATO.2 ({solver})...", log_txt
 
         pred_obj = os.path.join(out_lato, f"{stem}_pred.obj")
         if not os.path.isfile(pred_obj):
@@ -399,13 +399,13 @@ def run_mesh_retopo(
                 "--res", str(int(bake_res)),
             ]
             for log_txt in _run_subprocess(cmd, logs):
-                yield gr.skip(), gr.skip(), "Baking normal map in Blender...", log_txt
+                yield gr.skip(), gr.skip(), gr.skip(), "Baking normal map in Blender...", log_txt
             final_mesh = baked_glb
 
-        yield final_mesh, normal_png, f"```\n{topo_report}\n```", "\n".join(logs[-80:])
+        yield final_mesh, final_mesh, normal_png, f"**Saved:** `{os.path.relpath(final_mesh, ROOT)}`\n\n```\n{topo_report}\n```", "\n".join(logs[-80:])
     except Exception as e:
         logs.append(f"ERROR: {e}")
-        yield final_mesh, normal_png, f"**Error:** `{e}`", "\n".join(logs[-80:])
+        yield gr.skip(), final_mesh, normal_png, f"**Error:** `{e}`", "\n".join(logs[-80:])
 
 
 # ---------------------------------------------------------------------------
@@ -761,7 +761,9 @@ with gr.Blocks(title="LATO.2 3D Studio") as demo:
                 t2_btn = gr.Button("Retopologize Mesh", variant="primary")
             with gr.Column(scale=2):
                 t2_out_model = gr.Model3D(label="Retopologized Output", height=460)
-                t2_out_nrm = gr.Image(label="Baked Normal Map", height=200)
+                with gr.Row():
+                    t2_out_file = gr.File(label="Download Final Mesh (.glb / .obj)")
+                    t2_out_nrm = gr.Image(label="Baked Normal Map", height=200)
                 t2_metrics = gr.Markdown()
                 t2_logs = gr.Textbox(label="Live Log", lines=10)
 
@@ -771,7 +773,7 @@ with gr.Blocks(title="LATO.2 3D Studio") as demo:
                 t2_mesh, t2_vnum, t2_solver, t2_vsteps, t2_tsteps,
                 t2_ethresh, t2_ring, t2_snap, t2_bake, t2_bake_res, t2_seed,
             ],
-            outputs=[t2_out_model, t2_out_nrm, t2_metrics, t2_logs],
+            outputs=[t2_out_model, t2_out_file, t2_out_nrm, t2_metrics, t2_logs],
         )
 
     # ===== TAB 3: HERO-PART CROPPER & GENERATOR =====

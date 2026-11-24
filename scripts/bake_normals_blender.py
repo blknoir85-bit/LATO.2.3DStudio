@@ -105,9 +105,9 @@ def main():
     nodes = mat.node_tree.nodes
     links = mat.node_tree.links
     bsdf = nodes.get("Principled BSDF")
-    bsdf.inputs["Base Color"].default_value = (0.72, 0.72, 0.75, 1.0)
-    bsdf.inputs["Metallic"].default_value = 0.25
-    bsdf.inputs["Roughness"].default_value = 0.45
+    bsdf.inputs["Base Color"].default_value = (0.80, 0.80, 0.82, 1.0)
+    bsdf.inputs["Metallic"].default_value = 0.0
+    bsdf.inputs["Roughness"].default_value = 0.65
 
     tex_node = nodes.new("ShaderNodeTexImage")
     tex_node.image = img
