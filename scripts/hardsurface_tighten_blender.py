@@ -26,6 +26,7 @@ def parse_args():
     p.add_argument("--in_mesh", required=True)
     p.add_argument("--out_mesh", required=True)
     p.add_argument("--mirror_axis", choices=["X", "Y", "Z", "NONE"], default="NONE")
+    p.add_argument("--smooth_iters", type=int, default=3, help="volume-preserving Laplacian smooth iterations before planar dissolve (0 disables)")
     p.add_argument("--planar_angle", type=float, default=3.5, help="planar decimate angle limit in degrees (0 disables)")
     p.add_argument("--sharp_angle", type=float, default=35.0, help="mark edges sharper than this angle (deg) as sharp")
     p.add_argument("--triangulate", action="store_true", default=False)
@@ -74,6 +75,16 @@ def main():
         mod.use_clip = True
         mod.merge_threshold = 0.002
         bpy.ops.object.modifier_apply(modifier=mod.name)
+
+    # 1b. Volume-preserving Laplacian smooth to iron out Marching Cubes ripples without shrinking thin struts
+    if args.smooth_iters > 0:
+        sm = obj.modifiers.new("VolumeSmooth", "LAPLACIANSMOOTH")
+        sm.iterations = int(args.smooth_iters)
+        sm.lambda_factor = 0.5
+        sm.lambda_border = 0.1
+        sm.use_volume_preserve = True
+        sm.use_normalized = True
+        bpy.ops.object.modifier_apply(modifier=sm.name)
 
     # 2. Planar-preserving decimation to tighten wobbly flat armor faces
     if args.planar_angle > 0:

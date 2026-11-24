@@ -119,6 +119,7 @@ def run_full_pipeline(
     do_bake,
     bake_res,
     do_tighten,
+    smooth_iters,
     planar_angle,
     sharp_angle,
     seed,
@@ -211,6 +212,7 @@ def run_full_pipeline(
                 "--in_mesh", dense_mesh_path,
                 "--out_mesh", tight_glb,
                 "--mirror_axis", "NONE",
+                "--smooth_iters", str(int(smooth_iters)),
                 "--planar_angle", str(float(planar_angle)),
                 "--sharp_angle", str(float(sharp_angle)),
             ]
@@ -476,7 +478,7 @@ def run_hero_part(
 # ---------------------------------------------------------------------------
 # Tab 4: Blender Tighten / Bake / Output Gallery
 # ---------------------------------------------------------------------------
-def run_standalone_tighten(mesh_file, mirror_axis, planar_angle, sharp_angle):
+def run_standalone_tighten(mesh_file, mirror_axis, smooth_iters, planar_angle, sharp_angle):
     if not mesh_file or not BLENDER_EXE:
         yield None, "Provide a mesh and ensure Blender is installed.", ""
         return
@@ -489,6 +491,7 @@ def run_standalone_tighten(mesh_file, mirror_axis, planar_angle, sharp_angle):
         "--in_mesh", mesh_file,
         "--out_mesh", out_glb,
         "--mirror_axis", str(mirror_axis),
+        "--smooth_iters", str(int(smooth_iters)),
         "--planar_angle", str(float(planar_angle)),
         "--sharp_angle", str(float(sharp_angle)),
     ]
@@ -614,6 +617,7 @@ with gr.Blocks(title="LATO.2 3D Studio") as demo:
                     t1_bake_res = gr.Radio([1024, 2048, 4096], value=2048, label="Normal Map Resolution")
                     t1_tighten = gr.Checkbox(value=False, label="Hard-Surface Tighten (when LATO.2 is off)")
                     with gr.Row():
+                        t1_smooth = gr.Slider(0, 12, value=3, step=1, label="Volume-Preserving Smooth Iters")
                         t1_planar = gr.Slider(0.0, 8.0, value=3.5, step=0.5, label="Planar Dissolve Angle (°)")
                         t1_sharp = gr.Slider(15.0, 60.0, value=32.0, step=1.0, label="Sharp Edge Angle (°)")
 
@@ -633,7 +637,7 @@ with gr.Blocks(title="LATO.2 3D Studio") as demo:
                 t1_img, t1_engine, t1_octree, t1_s_steps, t1_s_cfg,
                 t1_run_lato, t1_vnum, t1_solver, t1_vsteps, t1_tsteps,
                 t1_ethresh, t1_ring, t1_snap, t1_bake, t1_bake_res,
-                t1_tighten, t1_planar, t1_sharp, t1_seed,
+                t1_tighten, t1_smooth, t1_planar, t1_sharp, t1_seed,
             ],
             outputs=[t1_model, t1_dense, t1_normal, t1_metrics, t1_logs],
         )
@@ -728,6 +732,7 @@ with gr.Blocks(title="LATO.2 3D Studio") as demo:
                 t4_in_mesh = gr.File(label="Upload Mesh (.glb / .obj)")
                 t4_mirror = gr.Radio(["NONE", "X", "Y"], value="NONE", label="Mirror Axis")
                 with gr.Row():
+                    t4_smooth = gr.Slider(0, 12, value=3, step=1, label="Volume-Preserving Smooth Iters")
                     t4_planar = gr.Slider(0.0, 8.0, value=3.5, step=0.5, label="Planar Dissolve (°)")
                     t4_sharp = gr.Slider(15.0, 60.0, value=32.0, step=1.0, label="Sharp Edge (°)")
                 t4_btn = gr.Button("Tighten Mesh in Blender", variant="primary")
@@ -740,7 +745,7 @@ with gr.Blocks(title="LATO.2 3D Studio") as demo:
         t4_dd.change(inspect_existing_model, inputs=[t4_dd], outputs=[t4_model, t4_info])
         t4_btn.click(
             run_standalone_tighten,
-            inputs=[t4_in_mesh, t4_mirror, t4_planar, t4_sharp],
+            inputs=[t4_in_mesh, t4_mirror, t4_smooth, t4_planar, t4_sharp],
             outputs=[t4_model, t4_info, t4_logs],
         )
 
